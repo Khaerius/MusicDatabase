@@ -1,0 +1,4 @@
+Manifest-Version: 1.0
+Main-Class: SerwisMuzyczny
+Class-Path: postgresql-9.4.1212.jre7.jar
+

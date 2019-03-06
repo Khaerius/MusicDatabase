@@ -1,0 +1,176 @@
+create table uzytkownik( uzytkownik_id SERIAL,
+			 nazwa_uzytkownika VARCHAR(32) NOT NULL,
+			 email VARCHAR(64) NOT NULL,
+			 numer_telefonu VARCHAR(16) NOT NULL,
+			 data_urodzenia DATE NOT NULL,
+			 premium BOOLEAN NOT NULL,
+			 CONSTRAINT uzytkownik_pk PRIMARY KEY(uzytkownik_id));
+
+create table playlista( playlista_id SERIAL,
+			tytul VARCHAR NOT NULL,
+			liczba_utworow NUMERIC NOT NULL,
+			autor INTEGER NOT NULL REFERENCES uzytkownik(uzytkownik_id),
+			CONSTRAINT playlista_pk PRIMARY KEY(playlista_id));
+
+create table wytwornia_plytowa( wytwornia_id SERIAL,
+				nazwa VARCHAR NOT NULL,
+				kraj INTEGER NOT NULL REFERENCES kraj(kraj_id),
+				CONSTRAINT wytwotnia_plytowa_pk PRIMARY KEY(wytwornia_id));
+
+create table gatunek( gatunek_id SERIAL,
+		      nazwa VARCHAR NOT NULL,
+		      CONSTRAINT gatunek_pk PRIMARY KEY(gatunek_id));
+
+create table muzyk( muzyk_id SERIAL,
+		    imiê VARCHAR NOT NULL,
+		    nazwisko VARCHAR NOT NULL,
+     	 	    kraj INTEGER NOT NULL REFERENCES kraj(kraj_id),
+		    data_urodzenia DATE,
+		    instrument VARCHAR,
+		    CONSTRAINT muzyk_pk PRIMARY KEY(muzyk_id));
+
+create table kraj( kraj_id SERIAL,
+		   nazwa VARCHAR NOT NULL,
+		   CONSTRAINT kraj_pk PRIMARY KEY(kraj_id));
+
+create table artysta( artysta_id SERIAL,
+		      nazwa VARCHAR NOT NULL,
+		      gatunek INTEGER NOT NULL REFERENCES gatunek(gatunek_id),
+		      kraj INTEGER NOT NULL REFERENCES kraj(kraj_id),
+		      CONSTRAINT artysta_pk PRIMARY KEY(artysta_id));
+
+create table album( album_id SERIAL,
+		    tytul VARCHAR NOT NULL,
+		    gatunek INTEGER NOT NULL REFERENCES gatunek(gatunek_id),
+		    tworca INTEGER NOT NULL REFERENCES artysta(artysta_id),
+		    wytwornia INTEGER NOT NULL REFERENCES wytwornia_plytowa(wytwornia_id),
+		    data_wydania DATE NOT NULL,
+		    liczba_utworow NUMERIC NOT NULL,
+		    srednia_ocen NUMERIC NOT NULL,
+		    CONSTRAINT album_pk PRIMARY KEY(album_id));
+
+create table utwor( utwor_id SERIAL,
+  		    tytul VARCHAR NOT NULL,
+		    album INTEGER NOT NULL REFERENCES album(album_id),
+		    czas_trwania NUMERIC NOT NULL,
+		    CONSTRAINT utwor_pk PRIMARY KEY(utwor_id));
+
+create table muzyk_artysta( muzyk_artysta_id SERIAL,
+			    artysta INTEGER NOT NULL REFERENCES artysta(artysta_id),
+			    muzyk INTEGER NOT NULL REFERENCES muzyk(muzyk_id),
+			    CONSTRAINT muzyk_artysta_pk PRIMARY KEY(muzyk_artysta_id));
+
+create table uzytkownik_album( uzytkownik_album_id SERIAL,
+			       album INTEGER NOT NULL REFERENCES album(album_id),
+			       uzytkownik INTEGER NOT NULL REFERENCES uzytkownik(uzytkownik_id),
+			       OCENA NUMERIC,
+			       CONSTRAINT uzytkownik_album_pk PRIMARY KEY(uzytkownik_album_id));
+
+create table playlista_utwor( playlista_utwor_id SERIAL,
+			      playlista INTEGER NOT NULL REFERENCES playlista(playlista_id),
+			      utwor INTEGER NOT NULL REFERENCES utwor(utwor_id),
+			      CONSTRAINT playlista_utwor_pk PRIMARY KEY(playlista_utwor_id));
+
+create table uzytkownik_playlista( uzytkownik_playlista_id SERIAL,
+				   uzytkownik INTEGER NOT NULL REFERENCES uzytkownik(uzytkownik_id),
+				   playlista INTEGER NOT NULL REFERENCES playlista(playlista_id),
+				   CONSTRAINT uzytkownik_playlista_pk PRIMARY KEY (uzytkownik_playlista_id));
+
+create table haslo( uzytkownik INTEGER NOT NULL REFERENCES uzytkownik(uzytkownik_id),
+		    haslo VARCHAR NOT NULL,
+		    CONSTRAINT haslo_pk PRIMARY KEY(uzytkownik));
+
+create table znajomi( znajomi_id SERIAL,
+		      uzytkownik1 INTEGER NOT NULL REFERENCES uzytkownik(uzytkownik_id),
+		      uzytkownik2 INTEGER NOT NULL REFERENCES uzytkownik(uzytkownik_id),
+		      CONSTRAINT znajomi_pk PRIMARY KEY(znajomi_id));
+
+create view zapisane_playlisty as select playlista_id, tytul,liczba_utworow,(SELECT DISTINCT nazwa_uzytkownika FROM uzytkownik JOIN playlista ON uzytkownik_id=autor WHERE uzytkownik_id=autor) FROM playlista JOIN uzytkownik_playlista ON playlista_id
+
+///////
+
+create or replace function ilosc_utworow_album()
+returns trigger
+language plpgsql
+as $$
+begin
+
+update projekt.album set liczba_utworow=(select count(*) from projekt.utwor where album=(select album from projekt.utwor where utwor_id=new.utwor_id)) 
+where album_id=(select album from projekt.utwor where utwor_id=new.utwor_id);
+
+return new;
+end;
+$$;
+
+///////
+
+create trigger ilosc_utworow after insert or delete on projekt.utwor
+for each row execute procedure ilosc_utworow_album();
+
+///////
+
+create view dane_profilu as select nazwa_uzytkownika, email, numer_telefonu, data_urodzenia from uzytkownik;
+
+//////
+
+create view kolekcja as select nazwa_uzytkownika, ocena, tytul, tworca from (uzytkownik u join uzytkownik_album ua on u.uzytkownik_id=ua.uzytkownik) join album a on ua.album=a.album_id;
+
+//////
+
+create or replace function ocena_album()
+returns trigger
+language plpgsql
+as $$
+begin
+
+update projekt.album set srednia_ocen=(select avg(ocena) from projekt.uzytkownik_album where album=new.album)
+where album_id=(select distinct album from projekt.uzytkownik_album where album_id=new.album);
+
+return new;
+end;
+$$;
+
+////////////////////
+
+create trigger srednia_ocen after insert on projekt.uzytkownik_album
+for each row execute procedure ocena_album();
+
+///////////////////
+
+create view kolekcja as select nazwa_uzytkownika, ocena, tytul, tworca from (uzytkownik u join uzytkownik_album ua on u.uzytkownik_id=ua.uzytkownik_id) join album a on ua.album_id=a.album_id;
+
+/////////////////
+
+create or replace function liczba_playlista()
+returns trigger
+language plpgsql
+as $$
+begin
+
+update projekt.playlista set liczba_utworow=(select count(*) from projekt.playlista_utwor where playlista=new.playlista)
+where playlista_id=(select playlista from projekt.playlista where playlista=new.playlista);
+
+return new;
+end;
+$$;
+
+////////////////
+
+create trigger liczba_playlista after insert or delete on projekt.playlista_utwor
+for each row execute procedure liczba_playlista();
+
+///////////////
+
+create view playlisty as select p.tworca, p.tytul, u.tytul, u.czas_trwania from (playlista p join playlista_utwor pu on p.playlista_id=pu.playlista) join utwor u on ua.utwor = u.utwor_id sort by p.tytul;
+
+///////////////
+
+create view zespo³y as select m.imiê, m.nazwisko, m.instrument, ar.nazwa, (SELECT nazwa FROM gatunek WHERE gatunek_id=ar.gatunek) as gatunek, al.tytul, (SELECT nazwa FROM wytwornia WHERE wytwornia_id=al.wytwornia) as wytwornia, al.data_wydania, al.srednia_ocen
+from ((muzyk m join muzyk_artysta ma on m.muzyk_id=ma.muzyk) join artysta ar on ma.artysta=ar.artysta_id) join album al on al.tworca=ar.artysta_id
+
+//////////////
+
+create view utwory as select u.tytul, a.tytul as album, nazwa from (utwor u join album a on u.album=a.album_id) join artysta on a.artysta=artysta_id	
+
+ PreparedStatement pst2 = c.prepareStatement(    "SELECT * FROM projekt.playlista WHERE tytul=? AND autor=(SELECT uzytkownik_    id FROM projekt.uzytkownik WHERE nazwa_uzytkownika=?)");
+		    
